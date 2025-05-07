@@ -1,86 +1,108 @@
-"""
-NYT-Connections solver (Python 3.9-compatible)
-
-  • Robust date filtering with pandas.Timestamp
-  • Compact regex parser for the model's four output lines
-  • Works with OpenAI o3-mini model
-"""
-
 import os
 import re
 import json
 import time
 import random
 import sys
-import argparse
 import csv
 from datetime import datetime
 from typing import Set, FrozenSet, Optional
-
 import pandas as pd
 from openai import OpenAI
-
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='NYT Connections solver using OpenAI API')
-parser.add_argument('--api-key', help='Your OpenAI API key')
-args = parser.parse_args()
 
 # --------------------------------------------------
 # 0.  CONFIGURATION
 # --------------------------------------------------
-MODEL              = "o3"
-START_DATE         = pd.Timestamp("2025-02-04")
-END_DATE           = pd.Timestamp("2025-02-17")
-CSV_PATH           = "Connections_Data.csv"
-RESULTS_PATH       = "connections_results.csv"
-# Get API key from command line, environment, or prompt user
-OPENAI_API_KEY = args.api_key or os.environ.get("OPENAI_API_KEY")
-if not OPENAI_API_KEY:
-    print("\n======================= IMPORTANT =======================")
-    print("You need a valid OpenAI API key to use this script.")
-    print("Get your API key from: https://platform.openai.com/account/api-keys")
-    print("==========================================================\n")
-    OPENAI_API_KEY = input("Please enter your OpenAI API key (starts with 'sk-'): ")
 
-if OPENAI_API_KEY and not OPENAI_API_KEY.startswith('sk-'):
-    print("\nWARNING: The API key you provided doesn't start with 'sk-', which is unusual for OpenAI API keys.")
-    proceed = input("Do you want to proceed anyway? (y/n): ")
-    if proceed.lower() != 'y':
-        print("Exiting script.")
-        exit()
+YOUR_API_KEY = "sk-your-api-key-here"  # Replace with your actual API key
+MODEL = "o3"  # "o3" or "o3-mini"
+START_DATE = pd.Timestamp("2025-04-17")  # Format: YYYY-MM-DD
+END_DATE = pd.Timestamp("2025-05-03")  # Format: YYYY-MM-DD
 
-DEBUG              = True  # Set to True for verbose output
+# File paths
+JSON_PATH = "connections.json"  # New puzzles data set
+RESULTS_PATH = "new_puzzle_results.csv"  # Output file for results
+
+# Use the specified API key
+OPENAI_API_KEY = YOUR_API_KEY
+if not OPENAI_API_KEY or OPENAI_API_KEY == "sk-your-api-key-here":
+    print("ERROR")
+    print("API key not set")
+    exit(1)
+
+DEBUG = True  # Set to True for verbose output
 
 # Initialize client
-client = OpenAI(
-    api_key=OPENAI_API_KEY
-)
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+print(f"\nNYT Connections Solver (JSON Version)")
+print(f"Configuration:")
+print(f"  - Model: {MODEL}")
+print(f"  - Date range: {START_DATE.date()} to {END_DATE.date()}")
+print(f"  - API key: {OPENAI_API_KEY[:5]}...{OPENAI_API_KEY[-4:] if len(OPENAI_API_KEY) > 8 else ''}")
+print(f"  - Input file: {JSON_PATH}")
+print(f"  - Results file: {RESULTS_PATH}")
+print("-" * 60)
 
 # --------------------------------------------------
 # 1.  LOAD DATA
 # --------------------------------------------------
-print("Loading data from CSV...")
-df = pd.read_csv(CSV_PATH, parse_dates=["Puzzle Date"])
-mask = (df["Puzzle Date"] >= START_DATE) & (df["Puzzle Date"] <= END_DATE)
-filtered_df = df.loc[mask]
-puzzle_dates = sorted(filtered_df["Puzzle Date"].unique())
+print("Loading data from JSON...")
+try:
+    with open(JSON_PATH, 'r') as f:
+        puzzles_data = json.load(f)
+    print(f"Successfully loaded {len(puzzles_data)} puzzles from {JSON_PATH}")
+    
+    # Analyze available dates
+    all_dates = [pd.Timestamp(puzzle['date']) for puzzle in puzzles_data]
+    min_date = min(all_dates)
+    max_date = max(all_dates)
+    print(f"Date range in dataset: {min_date.date()} to {max_date.date()}")
+    
+    # Check if our selected date range is within the available dates
+    if END_DATE < min_date or START_DATE > max_date:
+        print(f"WARNING: Selected date range ({START_DATE.date()} to {END_DATE.date()}) is outside the available data range")
+except Exception as e:
+    print(f"Error loading JSON data: {e}")
+    exit(1)
 
-if not puzzle_dates:
-    raise ValueError("No puzzles found in the requested date range.")
+# ONLY process puzzles within the specified date range
+puzzles = []
+for puzzle in puzzles_data:
+    puzzle_date = pd.Timestamp(puzzle['date'])
+    if START_DATE <= puzzle_date <= END_DATE:
+        # Extract all words from all groups to get the 16 words
+        all_words = []
+        for answer in puzzle['answers']:
+            all_words.extend(answer['members'])
+        
+        # Store the puzzle with its date and words
+        puzzles.append({
+            'date': puzzle_date,
+            'words': all_words,
+            'answers': puzzle['answers']
+        })
+
+if not puzzles:
+    print(f"No puzzles found in the date range {START_DATE.date()} to {END_DATE.date()}")
+    exit(1)
+
+print(f"Found {len(puzzles)} puzzles in the specified date range")
+
+# Print confirmation of the date filter working properly
+for puzzle in puzzles:
+    print(f"Will process puzzle from {puzzle['date'].date()}")
+    print(f"Total words: {len(puzzle['words'])}")
+    print(f"Number of groups: {len(puzzle['answers'])}")
 
 # --------------------------------------------------
 # 2.  HELPERS
 # --------------------------------------------------
-def gold_groups(puzzle_day: pd.DataFrame) -> Set[FrozenSet[str]]:
+def gold_groups(puzzle) -> Set[FrozenSet[str]]:
     """Return the correct answer as a *set* of 4 frozensets (order-free)."""
     return {
-        frozenset(words)
-        for _, words in (
-            puzzle_day.groupby("Group Level")["Word"]
-            .apply(list)
-            .sort_index()
-            .items()
-        )
+        frozenset(answer['members']) 
+        for answer in puzzle['answers']
     }
 
 GROUP_RE = re.compile(
@@ -170,7 +192,7 @@ def build_prompt(words: list[str], prompt_type='zero-shot') -> str:
     else:
         raise ValueError(f"Unknown prompt type: {prompt_type}")
 
-def export_results(date, llm_text, correct, prompt_type, accuracy, parse_error=False):
+def export_results(date, llm_text, correct, prompt_type, accuracy, parse_error=False, token_count=0, thinking_time=0):
     """
     Export results to CSV file.
     
@@ -181,8 +203,9 @@ def export_results(date, llm_text, correct, prompt_type, accuracy, parse_error=F
         prompt_type: Type of prompt used ('zero-shot', 'few-shot', or 'cot')
         accuracy: Number of groups correctly identified (0-4)
         parse_error: Whether there was a parsing error
+        token_count: Total number of tokens used (prompt + completion)
+        thinking_time: Time taken for API call (in seconds)
     """
-    # Check if file exists to determine if we need to write headers
     file_exists = os.path.isfile(RESULTS_PATH)
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -199,7 +222,9 @@ def export_results(date, llm_text, correct, prompt_type, accuracy, parse_error=F
                 'Prompt_Type',
                 'Correct',
                 'Accuracy',
-                'Parse_Error'
+                'Parse_Error',
+                'Token_Count',
+                'Thinking_Time_Sec'
             ])
         
         # Write result row
@@ -210,7 +235,9 @@ def export_results(date, llm_text, correct, prompt_type, accuracy, parse_error=F
             prompt_type,
             'Yes' if correct else 'No',
             accuracy,
-            'Yes' if parse_error else 'No'
+            'Yes' if parse_error else 'No',
+            token_count,
+            thinking_time
         ])
     
     print(f"\nResults for {prompt_type} prompt exported to {RESULTS_PATH}")
@@ -222,10 +249,12 @@ solved = 0
 total_attempts = 0
 prompt_types = ['zero-shot', 'few-shot', 'cot']
 
-for date in puzzle_dates:
-    puzzle_df = filtered_df[filtered_df["Puzzle Date"] == date]
-    words     = puzzle_df["Word"].tolist()
-    answer    = gold_groups(puzzle_df)
+print(f"\nStarting to process {len(puzzles)} puzzles within date range {START_DATE.date()} to {END_DATE.date()}")
+
+for puzzle in puzzles:
+    date = puzzle['date']
+    words = puzzle['words']
+    answer = gold_groups(puzzle)
     
     print(f"\n{'='*60}")
     print(f"PUZZLE DATE: {date.date()}")
@@ -244,13 +273,32 @@ for date in puzzle_dates:
         
         try:
             print(f"\nGetting model's solution using {prompt_type} prompt...")
+            start_time = time.time()
             resp = client.chat.completions.create(
-                model="o3",
+                model=MODEL,
                 messages=[{"role": "user", "content": prompt}]
             )
+            end_time = time.time()
+            thinking_time = end_time - start_time
+            
             print("API call successful!")
             print(f"Raw response: {resp}")
             print(f"Response type: {type(resp)}")
+            
+            # Extract token usage
+            token_count = 0
+            if hasattr(resp, 'usage') and resp.usage:
+                token_count = resp.usage.total_tokens
+                print(f"Token usage: {token_count} total tokens")
+                if hasattr(resp.usage, 'prompt_tokens'):
+                    print(f"  - Prompt tokens: {resp.usage.prompt_tokens}")
+                if hasattr(resp.usage, 'completion_tokens'):
+                    print(f"  - Completion tokens: {resp.usage.completion_tokens}")
+            else:
+                print("No token usage information available in response")
+            
+            print(f"Thinking time: {thinking_time:.2f} seconds")
+            
             if hasattr(resp, 'choices') and resp.choices:
                 print(f"Choices: {resp.choices}")
                 if hasattr(resp.choices[0], 'message'):
@@ -263,8 +311,12 @@ for date in puzzle_dates:
                 print("No choices in response")
                 llm_text = "Error: No choices in response"
         except Exception as e:
+            end_time = time.time()
+            thinking_time = end_time - start_time
+            token_count = 0
             print(f"\nError: {e}")
             print(f"Error type: {type(e)}")
+            print(f"Thinking time before error: {thinking_time:.2f} seconds")
             llm_text = f"Error: {str(e)}"
 
         parsed = parse_groups(llm_text)
@@ -293,8 +345,10 @@ for date in puzzle_dates:
         print(llm_text)
         
         print("\nCORRECT GROUPS:")
-        for i, g in enumerate(answer, 1):
-            print(f"  Group {i}: {', '.join(sorted(g))}")
+        group_number = 1
+        for answer_group in puzzle['answers']:
+            print(f"  Group {group_number} ({answer_group['group']}): {', '.join(sorted(answer_group['members']))}")
+            group_number += 1
         
         if not correct and parsed:
             print("\nPARSED GROUPS (INCORRECT):")
@@ -302,11 +356,12 @@ for date in puzzle_dates:
                 print(f"  Group {i}: {', '.join(sorted(g))}")
 
         # Export results to CSV for this prompt type
-        export_results(date, llm_text, correct, prompt_type, accuracy, parse_error)
+        export_results(date, llm_text, correct, prompt_type, accuracy, parse_error, token_count, thinking_time)
 
 # --------------------------------------------------
 # 4.  SUMMARY
 # --------------------------------------------------
 print(f"\n{'='*60}")
 print(f"FINAL RESULTS: Solved {solved}/{total_attempts}  ({solved/total_attempts:.1%})")
+print(f"Results saved to: {RESULTS_PATH}")
 print(f"{'='*60}")
