@@ -14,7 +14,7 @@ from openai import OpenAI
 # 0.  CONFIGURATION
 # --------------------------------------------------
 
-YOUR_API_KEY = "sk-your-api-key-here"  # Replace with your actual API key
+YOUR_API_KEY = "sk-your-api-key-here"
 MODEL = "o3"  # "o3" or "o3-mini"
 START_DATE = pd.Timestamp("2025-04-17")  # Format: YYYY-MM-DD
 END_DATE = pd.Timestamp("2025-05-03")  # Format: YYYY-MM-DD
@@ -30,7 +30,7 @@ if not OPENAI_API_KEY or OPENAI_API_KEY == "sk-your-api-key-here":
     print("API key not set")
     exit(1)
 
-DEBUG = True  # Set to True for verbose output
+DEBUG = True
 
 # Initialize client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -89,7 +89,6 @@ if not puzzles:
 
 print(f"Found {len(puzzles)} puzzles in the specified date range")
 
-# Print confirmation of the date filter working properly
 for puzzle in puzzles:
     print(f"Will process puzzle from {puzzle['date'].date()}")
     print(f"Total words: {len(puzzle['words'])}")

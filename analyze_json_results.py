@@ -10,6 +10,14 @@ import seaborn as sns
 from datetime import datetime
 import numpy as np
 
+plt.rcParams['font.size'] = 30
+plt.rcParams['axes.titlesize'] = 30
+plt.rcParams['axes.labelsize'] = 30
+plt.rcParams['xtick.labelsize'] = 27
+plt.rcParams['ytick.labelsize'] = 27
+plt.rcParams['legend.fontsize'] = 27
+plt.rcParams['figure.titlesize'] = 33
+
 # Configuration - UPDATED OUTPUT DIRECTORY
 RESULTS_FILE = "new_puzzle_results.csv"
 OUTPUT_DIR = "cur_graphs"
@@ -52,6 +60,19 @@ df['Model_Prompt'] = df['Model'] + ' + ' + df['Prompt_Type']
 prompt_types = sorted(df['Prompt_Type'].unique())
 prompt_colors = dict(zip(prompt_types, sns.color_palette("husl", len(prompt_types))))
 
+# Define custom prompt type order: zero-shot, few-shot, CoT
+def prompt_type_sort_key(prompt_type):
+    if 'zero' in prompt_type.lower():
+        return '1_' + prompt_type
+    elif 'few' in prompt_type.lower():
+        return '2_' + prompt_type
+    elif 'cot' in prompt_type.lower() or 'chain' in prompt_type.lower():
+        return '3_' + prompt_type
+    else:
+        return '4_' + prompt_type
+
+# Create sorted prompt order
+prompt_order = sorted(prompt_types, key=prompt_type_sort_key)
 
 def model_sort_key(model_name):
     if model_name == 'o3':
@@ -102,66 +123,74 @@ for col in ['Correct', 'Parse_Error']:
 sorted_models = sorted(df['Model'].unique(), key=model_sort_key)
 
 # 1. Accuracy by Model and Prompt Type
-plt.figure(figsize=(12, 6))
+plt.figure(figsize=(18, 9))
 g = sns.catplot(
     x='Model', y='Accuracy', hue='Prompt_Type', 
-    data=df, kind='bar', height=6, aspect=2,
-    palette=prompt_colors, order=sorted_models
+    data=df, kind='bar', height=9, aspect=2,
+    palette=prompt_colors, order=sorted_models,
+    hue_order=prompt_order,
+    legend=False  # Don't create legend in catplot
 )
 g.fig.suptitle('Number of Groups Correct by Model and Prompt Type')
 g.set(ylabel='Number of Groups Correct (0-4)', ylim=(0, 4))
 g.ax.grid(axis='y', alpha=0.3)
-g.ax.legend(title='Prompt Type')
+g.ax.legend(title='Prompt Type')  # Create legend directly on the ax
 filename = f"{OUTPUT_DIR}/accuracy_by_model_prompt.png"
 plt.savefig(filename)
 print(f"Saved: {filename}")
 plt.close()
 
 # 2. Success Rate by Model and Prompt Type
-plt.figure(figsize=(12, 6))
+plt.figure(figsize=(18, 9))
 success_data = df.groupby(['Model', 'Prompt_Type'])['Correct'].mean() * 100
 success_data = success_data.reset_index()
 g = sns.catplot(
     x='Model', y='Correct', hue='Prompt_Type', 
-    data=success_data, kind='bar', height=6, aspect=2,
-    palette=prompt_colors, order=sorted_models
+    data=success_data, kind='bar', height=9, aspect=2,
+    palette=prompt_colors, order=sorted_models,
+    hue_order=prompt_order,
+    legend=False  # Don't create legend in catplot
 )
 g.fig.suptitle('First Try 100% Solve Rate by Model and Prompt Type')
 g.set(ylabel='Success Rate (%)', ylim=(0, 100))
 g.ax.grid(axis='y', alpha=0.3)
-g.ax.legend(title='Prompt Type')
+g.ax.legend(title='Prompt Type')  # Create legend directly on the ax
 filename = f"{OUTPUT_DIR}/success_rate_by_model_prompt.png"
 plt.savefig(filename)
 print(f"Saved: {filename}")
 plt.close()
 
 # 3. Token Usage by Model and Prompt Type
-plt.figure(figsize=(12, 6))
+plt.figure(figsize=(18, 9))
 g = sns.catplot(
     x='Model', y='Token_Count', hue='Prompt_Type', 
-    data=df, kind='bar', height=6, aspect=2,
-    palette=prompt_colors, order=sorted_models
+    data=df, kind='bar', height=9, aspect=2,
+    palette=prompt_colors, order=sorted_models,
+    hue_order=prompt_order,
+    legend=False  # Don't create legend in catplot
 )
 g.fig.suptitle('Average Token Usage by Model and Prompt Type')
 g.set(ylabel='Average Token Count')
 g.ax.grid(axis='y', alpha=0.3)
-g.ax.legend(title='Prompt Type')
+g.ax.legend(title='Prompt Type')  # Create legend directly on the ax
 filename = f"{OUTPUT_DIR}/token_usage_by_model_prompt.png"
 plt.savefig(filename)
 print(f"Saved: {filename}")
 plt.close()
 
 # 4. Thinking Time by Model and Prompt Type
-plt.figure(figsize=(12, 6))
+plt.figure(figsize=(18, 9))
 g = sns.catplot(
     x='Model', y='Thinking_Time_Sec', hue='Prompt_Type', 
-    data=df, kind='bar', height=6, aspect=2,
-    palette=prompt_colors, order=sorted_models
+    data=df, kind='bar', height=9, aspect=2,
+    palette=prompt_colors, order=sorted_models,
+    hue_order=prompt_order,
+    legend=False  # Don't create legend in catplot
 )
 g.fig.suptitle('Average Response Time by Model and Prompt Type')
 g.set(ylabel='Average Time (seconds)')
 g.ax.grid(axis='y', alpha=0.3)
-g.ax.legend(title='Prompt Type')
+g.ax.legend(title='Prompt Type')  # Create legend directly on the ax
 filename = f"{OUTPUT_DIR}/response_time_by_model_prompt.png"
 plt.savefig(filename)
 print(f"Saved: {filename}")
@@ -170,18 +199,19 @@ plt.close()
 # 5. Combined Performance Metrics
 # Sort the Model_Prompt combinations to maintain order with o3 after o3-mini
 df['model_for_sort'] = df['Model'].apply(model_sort_key)
-df_sorted = df.sort_values(['model_for_sort', 'Prompt_Type'])
+df_sorted = df.sort_values(['model_for_sort', 'Prompt_Type'], key=lambda x: x.map(lambda y: prompt_type_sort_key(y) if x.name == 'Prompt_Type' else y))
 model_prompt_order = df_sorted['Model_Prompt'].unique()
 
 metrics = ['Accuracy', 'Token_Count', 'Thinking_Time_Sec']
-fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+fig, axes = plt.subplots(1, 3, figsize=(27, 9))
 
 for i, metric in enumerate(metrics):
     sns.barplot(
         x='Model_Prompt', y=metric, 
         data=df, ax=axes[i], 
         order=model_prompt_order,
-        hue='Prompt_Type', palette=prompt_colors, dodge=False
+        hue='Prompt_Type', palette=prompt_colors, dodge=False,
+        hue_order=prompt_order
     )
     if metric == 'Accuracy':
         axes[i].set_title('Number of Groups Correct')
@@ -199,12 +229,14 @@ print(f"Saved: {filename}")
 plt.close()
 
 # 6. Heatmap: Model vs Prompt Type for Accuracy
-plt.figure(figsize=(10, 8))
+plt.figure(figsize=(16, 12))
 # Sort models for heatmap
 model_order = sorted(df['Model'].unique(), key=model_sort_key)
 heatmap_data = df.pivot_table(values='Accuracy', index='Model', columns='Prompt_Type')
+# Reorder rows and columns
 heatmap_data = heatmap_data.reindex(model_order)  # Reorder rows
-sns.heatmap(heatmap_data, annot=True, cmap='RdYlGn', vmin=0, vmax=4, fmt='.2f')
+heatmap_data = heatmap_data.reindex(columns=prompt_order)  # Reorder columns
+sns.heatmap(heatmap_data, annot=True, cmap='RdYlGn', vmin=0, vmax=4, fmt='.2f', annot_kws={"size": 27})
 plt.title('Number of Groups Correct Heatmap by Model and Prompt Type')
 plt.tight_layout()
 filename = f"{OUTPUT_DIR}/accuracy_heatmap.png"
@@ -212,41 +244,8 @@ plt.savefig(filename)
 print(f"Saved: {filename}")
 plt.close()
 
-# 7. Heatmap: Model vs Prompt Type for Token Usage
-plt.figure(figsize=(10, 8))
-token_heatmap = df.pivot_table(values='Token_Count', index='Model', columns='Prompt_Type')
-token_heatmap = token_heatmap.reindex(model_order)  # Reorder rows
-sns.heatmap(token_heatmap, annot=True, cmap='Blues', fmt='.0f')
-plt.title('Token Usage Heatmap by Model and Prompt Type')
-plt.tight_layout()
-filename = f"{OUTPUT_DIR}/token_usage_heatmap.png"
-plt.savefig(filename)
-print(f"Saved: {filename}")
-plt.close()
-
-# 8. Efficiency Plot: Accuracy vs Token Usage
-plt.figure(figsize=(10, 8))
-sns.scatterplot(
-    x='Token_Count', 
-    y='Accuracy', 
-    hue='Prompt_Type', 
-    style='Model', 
-    s=100, 
-    data=df,
-    palette=prompt_colors
-)
-plt.title('Efficiency: Accuracy vs Token Usage')
-plt.xlabel('Token Count')
-plt.ylabel('Accuracy (0-4 groups)')
-plt.grid(alpha=0.3)
-plt.tight_layout()
-filename = f"{OUTPUT_DIR}/efficiency_plot.png"
-plt.savefig(filename)
-print(f"Saved: {filename}")
-plt.close()
-
-# 9. Bubble Chart: Accuracy vs Time vs Tokens
-plt.figure(figsize=(12, 8))
+# 7. Bubble Chart: Accuracy vs Time vs Tokens
+plt.figure(figsize=(18, 12))
 
 agg_df = df.groupby(['Model', 'Prompt_Type']).agg({
     'Thinking_Time_Sec': 'mean',
@@ -259,7 +258,12 @@ agg_df['Model_Prompt'] = agg_df['Model'] + ' + ' + agg_df['Prompt_Type']
 
 # Sort by model to ensure consistent order
 agg_df['model_for_sort'] = agg_df['Model'].apply(model_sort_key)
-agg_df = agg_df.sort_values('model_for_sort')
+# Sort by both model and prompt type order
+agg_df['prompt_for_sort'] = agg_df['Prompt_Type'].apply(prompt_type_sort_key)
+agg_df = agg_df.sort_values(['model_for_sort', 'prompt_for_sort'])
+
+# Create a color map that follows the prompt order
+prompt_to_color = {prompt: prompt_colors[prompt] for prompt in prompt_order}
 
 scatter = plt.scatter(
     x=agg_df['Thinking_Time_Sec'],
@@ -274,15 +278,15 @@ for i, row in agg_df.iterrows():
     plt.annotate(
         row['Model_Prompt'],
         (row['Thinking_Time_Sec'], row['Accuracy']),
-        fontsize=9,
-        xytext=(5, 5),
+        fontsize=27,
+        xytext=(7, 7),
         textcoords='offset points'
     )
 
-# Add a legend for prompt types
-for prompt in prompt_colors:
+# Add a legend for prompt types in the correct order
+for prompt in prompt_order:
     plt.scatter([], [], color=prompt_colors[prompt], label=prompt)
-plt.legend(title='Prompt Type')
+plt.legend(title='Prompt Type', loc='upper left')
 
 plt.title('Performance Bubble Chart')
 plt.xlabel('Response Time (seconds)')
@@ -294,8 +298,8 @@ plt.savefig(filename)
 print(f"Saved: {filename}")
 plt.close()
 
-# 10. Model Comparison
-plt.figure(figsize=(14, 8))
+# 8. Model Comparison
+plt.figure(figsize=(21, 12))
 
 model_comparison_data = df.groupby(['Model', 'Prompt_Type']).agg({
     'Accuracy': 'mean',
@@ -311,38 +315,42 @@ g = sns.catplot(
     hue='Model', 
     data=model_comparison_data,
     kind='bar',
-    height=8, aspect=1.75,
-    hue_order=sorted_models
+    height=12, aspect=1.75,
+    hue_order=sorted_models,
+    order=prompt_order,
+    legend=False
 )
-g.fig.suptitle('Model Comparison: Number of Groups Correct by Prompt Type', fontsize=16)
+g.fig.suptitle('Model Comparison: Number of Groups Correct by Prompt Type', fontsize=33)
 g.set(ylabel='Number of Groups Correct (0-4)', ylim=(0, 4))
 g.set(xlabel='Prompt Type')
-g.ax.set_xlabel('Prompt Type', fontsize=12)
+g.ax.set_xlabel('Prompt Type', fontsize=30)
 g.ax.grid(axis='y', alpha=0.3)
-g.ax.legend(title='Model')
+g.ax.legend(title='Model', title_fontsize=30)
 
 filename = f"{OUTPUT_DIR}/model_comparison.png"
 plt.savefig(filename)
 print(f"Saved: {filename}")
 plt.close()
 
-# Success rate comparison
-plt.figure(figsize=(14, 8))
+# 9. Success rate comparison
+plt.figure(figsize=(21, 12))
 g = sns.catplot(
     x='Prompt_Type', 
     y='Correct', 
     hue='Model', 
     data=model_comparison_data,
     kind='bar',
-    height=8, aspect=1.75,
-    hue_order=sorted_models
+    height=12, aspect=1.75,
+    hue_order=sorted_models,
+    order=prompt_order,
+    legend=False
 )
-g.fig.suptitle('First Try 100% Solve Rate by Prompt Type', fontsize=16)
+g.fig.suptitle('First Try 100% Solve Rate by Prompt Type', fontsize=33)
 g.set(ylabel='Success Rate (proportion)', ylim=(0, 1))
 g.set(xlabel='Prompt Type')
-g.ax.set_xlabel('Prompt Type', fontsize=12)
+g.ax.set_xlabel('Prompt Type', fontsize=30)
 g.ax.grid(axis='y', alpha=0.3)
-g.ax.legend(title='Model')
+g.ax.legend(title='Model', title_fontsize=30)
 
 filename = f"{OUTPUT_DIR}/success_rate_comparison.png"
 plt.savefig(filename)

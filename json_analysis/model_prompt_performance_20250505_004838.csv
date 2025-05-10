@@ -1,0 +1,7 @@
+Model,Prompt_Type,Accuracy,Correct,Token_Count,Thinking_Time_Sec,Parse_Error,Count
+o3,cot,4.0,100.0%,6655,159.79,0.0%,18
+o3,few-shot,3.83,94.4%,7601,273.39,0.0%,18
+o3,zero-shot,3.89,94.4%,5475,241.61,0.0%,18
+o3-mini,cot,2.94,61.1%,7336,85.69,0.0%,18
+o3-mini,few-shot,2.78,66.7%,7635,71.48,0.0%,18
+o3-mini,zero-shot,2.56,50.0%,7837,70.69,0.0%,18
